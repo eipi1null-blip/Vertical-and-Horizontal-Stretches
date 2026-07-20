@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horizontal and Vertical Function Stretches</title>
+  <style>
+    :root {
+      --blue: #67bbdd;
+      --orange: #f0a247;
+      --ink: #25262b;
+      --grid: #e5e5e5;
+      --grid-strong: #c8c8c8;
+      --panel: #eef3fb;
+      --pink: #c73569;
+      --purple: #6b3aa0;
+      --axis: #353535;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .applet {
+      width: min(1240px, 100vw);
+      height: min(760px, 100vh);
+      min-height: 640px;
+      border: 2px solid #8d8d8d;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+      background: #fff;
+    }
+
+    .panel {
+      border-left: 2px solid #9aa7b8;
+      background: var(--panel);
+      padding: 20px 22px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow: auto;
+    }
+
+    .title {
+      font: 700 23px Georgia, "Times New Roman", serif;
+      color: #33353a;
+      line-height: 1.15;
+    }
+
+    .equation {
+      font: italic 700 25px Georgia, "Times New Roman", serif;
+      background: rgba(255,255,255,.72);
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      padding: 12px 14px;
+      line-height: 1.55;
+    }
+
+    .original { color: var(--blue); }
+    .moved { color: var(--orange); }
+
+    .control {
+      display: grid;
+      gap: 8px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font: 700 20px Georgia, "Times New Roman", serif;
+      color: #383a40;
+    }
+
+    .value {
+      color: var(--pink);
+      font-size: 26px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 34px;
+      margin: 0;
+      accent-color: var(--pink);
+      touch-action: pan-y;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 12px 14px;
+      background: #244794;
+      color: #fff;
+      font: 800 18px "Segoe UI", Arial, sans-serif;
+      cursor: pointer;
+    }
+
+    button:active { transform: translateY(1px); }
+
+    .readout {
+      margin-top: auto;
+      display: grid;
+      gap: 12px;
+      font: 600 17px "Segoe UI", Arial, sans-serif;
+      color: #3b4050;
+      line-height: 1.35;
+    }
+
+    .pill {
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+      padding: 10px 12px;
+    }
+
+    @media (max-width: 880px) {
+      .applet {
+        height: 100vh;
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+      .panel {
+        border-left: 0;
+        border-top: 2px solid #9aa7b8;
+        max-height: 330px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="applet" aria-label="Combined horizontal and vertical stretch applet">
+    <section class="stage">
+      <canvas id="graph"></canvas>
+    </section>
+    <aside class="panel">
+      <div class="title">Horizontal and Vertical Scaling</div>
+
+      <div class="equation">
+        <div class="original">y = f(x)</div>
+        <div class="moved">y = p f(qx)</div>
+      </div>
+
+      <div class="control">
+        <label for="pSlider">vertical scale p <span class="value" id="pValue">1.0</span></label>
+        <input id="pSlider" type="range" min="-5" max="5" step="0.1" value="1" />
+      </div>
+
+      <div class="control">
+        <label for="qSlider">horizontal scale q <span class="value" id="qValue">1.0</span></label>
+        <input id="qSlider" type="range" min="-2" max="2" step="0.01" value="1" />
+      </div>
+
+      <button id="resetBtn" type="button">Reset</button>
+
+      <div class="readout">
+        <div class="pill" id="ruleText">No stretch: p = 1 and q = 1.</div>
+        <div class="pill" id="pointText">(x, y) maps to (x / q, p y).</div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("graph");
+    const ctx = canvas.getContext("2d");
+    const pSlider = document.getElementById("pSlider");
+    const qSlider = document.getElementById("qSlider");
+    const pValue = document.getElementById("pValue");
+    const qValue = document.getElementById("qValue");
+    const ruleText = document.getElementById("ruleText");
+    const pointText = document.getElementById("pointText");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const state = {
+      p: 1,
+      q: 1,
+      sampleX: 1,
+      draggingPoint: false,
+      xMin: -7,
+      xMax: 7,
+      yMin: -6,
+      yMax: 6,
+      dpr: 1,
+      scale: 1,
+      pad: { left: 0, top: 0 }
+    };
+
+    function f(x) {
+      return 1.15 * Math.exp(-3.2 * (x + 1.05) ** 2)
+        - 0.35 * Math.exp(-9.5 * (x + 0.22) ** 2)
+        + 1.05 * Math.exp(-3.0 * (x - 0.98) ** 2)
+        - 0.08 * Math.sin(1.8 * x);
+    }
+
+    function transformed(x) {
+      return state.p * f(state.q * x);
+    }
+
+    function resize() {
+      state.dpr = Math.max(1, window.devicePixelRatio || 1);
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.round(rect.width * state.dpr);
+      canvas.height = Math.round(rect.height * state.dpr);
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
+      const pad = { left: 58, right: 34, top: 28, bottom: 44 };
+      const usableW = rect.width - pad.left - pad.right;
+      const usableH = rect.height - pad.top - pad.bottom;
+      const xUnits = state.xMax - state.xMin;
+      const yUnits = state.yMax - state.yMin;
+      state.scale = Math.min(usableW / xUnits, usableH / yUnits);
+      const actualW = state.scale * xUnits;
+      const actualH = state.scale * yUnits;
+      state.pad = {
+        left: pad.left + (usableW - actualW) / 2,
+        top: pad.top + (usableH - actualH) / 2
+      };
+      draw();
+    }
+
+    function sx(x) {
+      return state.pad.left + (x - state.xMin) * state.scale;
+    }
+
+    function sy(y) {
+      return state.pad.top + (state.yMax - y) * state.scale;
+    }
+
+    function wx(px) {
+      return state.xMin + (px - state.pad.left) / state.scale;
+    }
+
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (let x = Math.ceil(state.xMin * 2) / 2; x <= state.xMax + 1e-9; x += 0.5) {
+        ctx.beginPath();
+        ctx.strokeStyle = Number.isInteger(x) ? "#c7c7c7" : "#e5e5e5";
+        ctx.lineWidth = Number.isInteger(x) ? 1.35 : 0.8;
+        ctx.moveTo(sx(x), sy(state.yMin));
+        ctx.lineTo(sx(x), sy(state.yMax));
+        ctx.stroke();
+      }
+
+      for (let y = Math.ceil(state.yMin * 2) / 2; y <= state.yMax + 1e-9; y += 0.5) {
+        ctx.beginPath();
+        ctx.strokeStyle = Number.isInteger(y) ? "#c7c7c7" : "#e5e5e5";
+        ctx.lineWidth = Number.isInteger(y) ? 1.35 : 0.8;
+        ctx.moveTo(sx(state.xMin), sy(y));
+        ctx.lineTo(sx(state.xMax), sy(y));
+        ctx.stroke();
+      }
+
+      drawAxes();
+    }
+
+    function drawAxes() {
+      ctx.save();
+      ctx.strokeStyle = "#343434";
+      ctx.fillStyle = "#343434";
+      ctx.lineWidth = 3;
+      ctx.font = "22px Georgia, 'Times New Roman', serif";
+
+      const xAxis = sy(0);
+      ctx.beginPath();
+      ctx.moveTo(sx(state.xMin), xAxis);
+      ctx.lineTo(sx(state.xMax) - 8, xAxis);
+      ctx.stroke();
+      drawArrow(sx(state.xMax) - 8, xAxis, 0, "#343434");
+      drawText("x", sx(state.xMax) - 18, xAxis - 18, 30, "#343434");
+
+      for (let x = Math.ceil(state.xMin); x <= state.xMax; x++) {
+        if (x === 0) continue;
+        ctx.fillText(String(x), sx(x) - 6, xAxis + 24);
+      }
+
+      const yAxis = sx(0);
+      ctx.beginPath();
+      ctx.moveTo(yAxis, sy(state.yMin));
+      ctx.lineTo(yAxis, sy(state.yMax) + 8);
+      ctx.stroke();
+      drawArrow(yAxis, sy(state.yMax) + 8, -Math.PI / 2, "#343434");
+      drawText("y", yAxis + 14, sy(state.yMax) + 30, 30, "#343434");
+
+      for (let y = Math.ceil(state.yMin); y <= state.yMax; y++) {
+        if (y === 0) continue;
+        ctx.fillText(String(y), yAxis - 28, sy(y) + 7);
+      }
+
+      ctx.restore();
+    }
+
+    function drawArrow(x, y, angle, color) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-18, -8);
+      ctx.lineTo(-18, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawText(text, x, y, size, color) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = `italic 700 ${size}px Georgia, 'Times New Roman', serif`;
+      ctx.fillText(text, x, y);
+      ctx.restore();
+    }
+
+    function plotCurve(fn, color, width) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      let started = false;
+      const steps = 1000;
+      for (let i = 0; i <= steps; i++) {
+        const x = state.xMin + (state.xMax - state.xMin) * i / steps;
+        const y = fn(x);
+        if (!Number.isFinite(y) || y < state.yMin - 2 || y > state.yMax + 2) {
+          started = false;
+          continue;
+        }
+        const px = sx(x);
+        const py = sy(y);
+        if (!started) {
+          ctx.moveTo(px, py);
+          started = true;
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function dashedWorld(x1, y1, x2, y2, color) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.6;
+      ctx.setLineDash([8, 7]);
+      ctx.beginPath();
+      ctx.moveTo(sx(x1), sy(y1));
+      ctx.lineTo(sx(x2), sy(y2));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPoint(x, y, fill, ring = false) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = "#171717";
+      ctx.lineWidth = 2;
+      ctx.arc(sx(x), sy(y), 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (ring) {
+        ctx.beginPath();
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = 5;
+        ctx.arc(sx(x), sy(y), 17, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawMapping() {
+      const u = state.sampleX;
+      const v = f(u);
+      drawPoint(u, v, "#6b3aa0", true);
+
+      if (Math.abs(state.q) < 0.04) {
+        dashedWorld(u, v, u, state.p * v, "#606060");
+        drawPoint(u, state.p * v, "#f0a247", true);
+        return;
+      }
+
+      const tx = u / state.q;
+      const ty = state.p * v;
+      if (tx < state.xMin || tx > state.xMax || ty < state.yMin || ty > state.yMax) return;
+
+      dashedWorld(u, v, tx, v, "#606060");
+      dashedWorld(tx, v, tx, ty, "#606060");
+      drawArrow(sx(tx), sy(v), tx >= u ? 0 : Math.PI, "#606060");
+      drawArrow(sx(tx), sy(ty), ty >= v ? -Math.PI / 2 : Math.PI / 2, "#606060");
+      drawPoint(tx, ty, "#f0a247", true);
+
+      ctx.save();
+      ctx.fillStyle = "#606060";
+      ctx.font = "italic 700 18px Georgia, 'Times New Roman', serif";
+      const midX = (u + tx) / 2;
+      const midY = (v + ty) / 2;
+      if (Math.abs(tx - u) > 0.18) ctx.fillText("x / q", sx(midX) - 12, sy(v) - 10);
+      if (Math.abs(ty - v) > 0.18) ctx.fillText("p y", sx(tx) + 10, sy(midY));
+      ctx.restore();
+    }
+
+    function drawLabels() {
+      drawText("y = f(x)", sx(0.7), sy(0.68), 24, "#67bbdd");
+      const pText = state.p.toFixed(1).replace("-0.0", "0.0");
+      const qText = state.q.toFixed(2).replace("-0.00", "0.00");
+      drawText(`y = ${pText} f(${qText}x)`, sx(1.35), sy(2.45), 23, "#f0a247");
+    }
+
+    function draw() {
+      drawGrid();
+      plotCurve(x => f(x), "#67bbdd", 4);
+      plotCurve(x => transformed(x), "#f0a247", 4);
+      drawMapping();
+      drawLabels();
+      updateText();
+    }
+
+    function updateText() {
+      pValue.textContent = state.p.toFixed(1);
+      qValue.textContent = state.q.toFixed(2);
+
+      const vertical = state.p === 1
+        ? "no vertical scaling"
+        : state.p === 0
+          ? "collapse to the x-axis"
+          : `${Math.abs(state.p).toFixed(1)}x vertical ${Math.abs(state.p) > 1 ? "stretch" : "compression"}${state.p < 0 ? " with reflection in the x-axis" : ""}`;
+
+      let horizontal;
+      const aq = Math.abs(state.q);
+      if (aq < 0.04) {
+        horizontal = "q is near 0, so f(qx) is almost constant";
+      } else if (state.q === 1) {
+        horizontal = "no horizontal scaling";
+      } else {
+        horizontal = `${(1 / aq).toFixed(2)}x horizontal ${aq < 1 ? "stretch" : "compression"}${state.q < 0 ? " with reflection in the y-axis" : ""}`;
+      }
+
+      ruleText.textContent = `The graph shows ${vertical} and ${horizontal}.`;
+
+      const u = state.sampleX;
+      const v = f(u);
+      if (Math.abs(state.q) < 0.04) {
+        pointText.textContent = `For q near 0, many x-values share approximately the same input f(0).`;
+      } else {
+        pointText.textContent = `(${u.toFixed(2)}, ${v.toFixed(2)}) maps to (${(u / state.q).toFixed(2)}, ${(state.p * v).toFixed(2)}).`;
+      }
+    }
+
+    function setP(value) {
+      state.p = Number(value);
+      draw();
+    }
+
+    function setQ(value) {
+      state.q = Number(value);
+      draw();
+    }
+
+    pSlider.addEventListener("input", event => setP(event.target.value));
+    qSlider.addEventListener("input", event => setQ(event.target.value));
+
+    resetBtn.addEventListener("click", () => {
+      state.p = 1;
+      state.q = 1;
+      state.sampleX = 1;
+      pSlider.value = "1";
+      qSlider.value = "1";
+      draw();
+    });
+
+    function pointerToCanvas(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      const p = pointerToCanvas(event);
+      const dist = Math.hypot(p.x - sx(state.sampleX), p.y - sy(f(state.sampleX)));
+      if (dist < 30) {
+        state.draggingPoint = true;
+        canvas.setPointerCapture(event.pointerId);
+      }
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (!state.draggingPoint) return;
+      const p = pointerToCanvas(event);
+      state.sampleX = Math.max(state.xMin + 0.3, Math.min(state.xMax - 0.3, wx(p.x)));
+      draw();
+    });
+
+    canvas.addEventListener("pointerup", event => {
+      state.draggingPoint = false;
+      try { canvas.releasePointerCapture(event.pointerId); } catch (error) {}
+    });
+
+    canvas.addEventListener("pointercancel", () => {
+      state.draggingPoint = false;
+    });
+
+    window.addEventListener("resize", resize);
+    resize();
+  </script>
+</body>
+</html>
